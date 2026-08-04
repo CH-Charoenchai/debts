@@ -3,7 +3,7 @@ const CACHE = "debts-v1";
 const ASSETS = [
   "./",
   "./index.html",
-  "./App.js",
+  "./app.js",
   "./manifest.json"
 ];
 
