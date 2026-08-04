@@ -1,11 +1,35 @@
 // ========= ใส่ค่าจาก Project Settings > Data API ของคุณตรงนี้ =========
     const SUPABASE_URL = 'https://rjxkwjecbgmtomvyaoxp.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_I_cwQD9m84D9D04pK3a6zA_Ff6oUY0b';
+    const VAPID_PUBLIC_KEY = 'BLgkyHztkavPdE4YIaf_LhBvlmo6J84f5VCAVOAy4FgsFRQLFn7csuMtuPK98GFgEfQbkZ6Wum3_Fn_UGiw2qos';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function subscribeToPush(userId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+  }
+  const json = sub.toJSON();
+  await sb.from('push_subscriptions').upsert({
+    user_id: userId,
+    endpoint: json.endpoint,
+    p256dh: json.keys.p256dh,
+    auth: json.keys.auth
+  }, { onConflict: 'endpoint' });
+}
 // ======================================================================
 
-    // const SUPABASE_URL = 'xxx';
-    // const SUPABASE_KEY = 'xxx';
-// ======================================================================
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -965,10 +989,9 @@ if ("serviceWorker" in navigator) {
 }
 async function enableNotification() {
     if (!("Notification" in window)) return;
-
     const permission = await Notification.requestPermission();
-
     if (permission === "granted") {
-        new Notification("เปิดใช้งานการแจ้งเตือนแล้ว 🎉");
+        const { data: { user } } = await sb.auth.getUser();
+        if (user) subscribeToPush(user.id);
     }
 }
