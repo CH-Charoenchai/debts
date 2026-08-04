@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500;600&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#6FCF97">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Debts">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --mint: #6FCF97;
+      --mint-dark: #4FAE7A;
+      --peach: #FFB4A2;
+      --peach-dark: #E8927D;
+      --purple: #9B8FD9;
+      --purple-dark: #7A6BC4;
+      --sky: #7FB8E0;
+      --sky-dark: #5A96C4;
+      --cream: #FFF8F0;
+      --card: #FFFFFF;
+      --plum: #4A3F55;
+      --plum-soft: #8A8195;
+      --line-color: #06C755;
+      --danger: #E8747A;
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      background: var(--cream);
+      font-family: 'Sarabun', sans-serif;
+      color: var(--plum);
+      -webkit-tap-highlight-color: transparent;
+    }
+    h1, h2, h3, .heading { font-family: 'Mitr', sans-serif; font-weight: 500; }
+    .app { max-width: 480px; margin: 0 auto; min-height: 100vh; padding-bottom: 90px; position: relative; }
+
+    /* ---- Login screen ---- */
+    #lock {
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; padding: 24px;
+      max-width: 480px; margin: 0 auto;
+    }
+    .lock-emoji { font-size: 48px; margin-bottom: 8px; }
+    #lock h2 { margin: 0 0 4px; }
+    #lock p { color: var(--plum-soft); margin: 0 0 24px; font-size: 14px; }
+    .login-form { width: 100%; max-width: 300px; }
+    .login-form .field { margin-bottom: 12px; }
+    .login-form input {
+      width: 100%; border: 1.5px solid #EAE3D6; border-radius: 12px; padding: 12px 14px;
+      font-family: 'Sarabun'; font-size: 15px; background: white; color: var(--plum);
+    }
+    input[type="password"]::-ms-reveal,
+    input[type="password"]::-ms-clear { display: none; }
+    input::-webkit-credentials-auto-fill-button,
+    input::-webkit-strong-password-auto-fill-button { visibility: hidden; }
+    #lock-error { color: var(--danger); font-size: 13px; min-height: 18px; margin: 8px 0; text-align: center; }
+
+    /* ---- Shared ---- */
+    .view { display: none; padding: 16px 20px; }
+    .view.active { display: block; }
+    .section-title { font-size: 15px; margin: 18px 0 10px; display: flex; justify-content: space-between; align-items: center; }
+    .section-title:first-child { margin-top: 0; }
+    .card {
+      background: var(--card); border-radius: 16px; padding: 14px 16px; margin-bottom: 10px;
+      box-shadow: 0 2px 10px rgba(74,63,85,0.06);
+    }
+    .row { display: flex; justify-content: space-between; align-items: center; }
+    .row-select { display: flex; align-items: flex-start; gap: 10px; }
+    .select-check {
+      width: 20px; height: 20px; margin-top: 1px; flex-shrink: 0; accent-color: var(--mint-dark); cursor: pointer;
+    }
+    .item-name { font-weight: 500; font-size: 15px; }
+    .item-sub { font-size: 12px; color: var(--plum-soft); margin-top: 2px; }
+    .item-amount { font-weight: 600; font-size: 16px; }
+    .item-amount.neg { color: var(--mint-dark); }
+    .badge { font-size: 11px; padding: 3px 9px; border-radius: 20px; border: none; cursor: default; font-family: 'Sarabun'; }
+    .badge.unpaid { background: #FFE8D6; color: var(--peach-dark); }
+    .badge.paid { background: #DFF3E7; color: var(--mint-dark); cursor: pointer; }
+    .badge.none { background: #EFE9F5; color: var(--plum-soft); }
+    .card-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn {
+      border: none; border-radius: 12px; padding: 9px 14px; font-family: 'Sarabun'; font-size: 13px;
+      font-weight: 500; cursor: pointer;
+    }
+    .btn-mint { background: var(--mint); color: white; }
+    .btn-peach { background: var(--peach); color: white; }
+    .btn-purple { background: var(--purple); color: white; }
+    .btn-ghost { background: #F3EFE6; color: var(--plum); }
+    .btn-danger { background: #FBE4E5; color: var(--danger); }
+    .btn-block { width: 100%; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-link { border: none; background: none; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; color: inherit; }
+    .empty { text-align: center; color: var(--plum-soft); padding: 30px 10px; font-size: 14px; }
+
+    /* ---- FAB ---- */
+    .fab-wrap {
+      position: fixed; left: 0; right: 0; bottom: 96px; max-width: 480px; margin: 0 auto;
+      height: 0; z-index: 6; pointer-events: none;
+    }
+    .fab {
+      position: absolute; right: 20px; bottom: 0; pointer-events: auto;
+      background: var(--peach); color: white; border: none; width: 52px; height: 52px;
+      border-radius: 50%; font-size: 26px; box-shadow: 0 4px 14px rgba(232,146,125,0.4); cursor: pointer;
+    }
+
+    /* ---- Tabs ---- */
+    .tabbar {
+      position: fixed; bottom: 0; left: 0; right: 0; background: var(--card);
+      max-width: 480px; margin: 0 auto; display: flex; box-shadow: 0 -2px 12px rgba(74,63,85,0.08);
+      border-radius: 20px 20px 0 0; overflow: hidden;
+    }
+    .tab-btn {
+      flex: 1; border: none; background: none; padding: 12px 4px 10px; font-family: 'Sarabun';
+      font-size: 12px; color: var(--plum-soft); cursor: pointer;
+    }
+    .tab-btn .ic { font-size: 20px; display: block; margin-bottom: 2px; }
+    .tab-btn.active { color: var(--mint-dark); font-weight: 600; }
+
+    /* ---- Home ---- */
+    .greeting-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .greeting { font-family: 'Mitr', sans-serif; font-size: 17px; }
+    .reset-btn {
+      border: none; background: #F3EFE6; width: 32px; height: 32px; border-radius: 50%;
+      font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: transform .15s;
+    }
+    .reset-btn:active { transform: scale(0.88) rotate(-25deg); }
+    .month-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .month-nav-btn {
+      border: none; background: #F3EFE6; color: var(--plum); width: 30px; height: 30px;
+      border-radius: 50%; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .month-nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .month-label { color: var(--plum-soft); font-size: 13px; margin: 0; text-align: center; }
+    .month-label .month-main { font-size: 14px; font-weight: 600; color: var(--plum); font-family: 'Mitr', sans-serif; }
+    .future-note {
+      font-size: 11px; color: var(--purple-dark); background: #EFEBFB; border-radius: 10px;
+      padding: 4px 10px; text-align: center; margin-top: 8px;
+    }
+    .summary-card {
+      position: relative; overflow: hidden;
+      background: linear-gradient(135deg, #A996F0 0%, var(--purple) 55%, var(--purple-dark) 100%);
+      border-radius: var(--radius); padding: 20px; color: white; margin-top: 8px;
+    }
+    .summary-card::before {
+      content: ''; position: absolute; width: 130px; height: 130px; border-radius: 50%;
+      background: rgba(255,255,255,0.12); top: -55px; right: -35px;
+    }
+    .summary-card::after {
+      content: ''; position: absolute; width: 70px; height: 70px; border-radius: 50%;
+      background: rgba(255,255,255,0.10); bottom: -25px; right: 55px;
+    }
+    .summary-card .label { font-size: 12px; opacity: 0.85; position: relative; z-index: 1; }
+    .summary-card .amount { font-size: 30px; font-family: 'Mitr', sans-serif; margin: 2px 0 0; position: relative; z-index: 1; }
+    .summary-decor {
+      position: absolute; right: 12px; bottom: 6px; font-size: 46px; opacity: 0.95;
+      transform: rotate(-6deg); filter: drop-shadow(0 3px 6px rgba(0,0,0,0.15));
+    }
+    .summary-sparkle {
+      position: absolute; right: 54px; top: 14px; font-size: 16px; opacity: 0.85;
+    }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+    .stat-card { border-radius: 16px; padding: 12px 8px; color: white; text-align: center; }
+    .stat-card.salary { background: linear-gradient(135deg, var(--mint), var(--mint-dark)); }
+    .stat-card.debt { background: linear-gradient(135deg, var(--peach), var(--peach-dark)); }
+    .stat-card.recv { background: linear-gradient(135deg, var(--sky), var(--sky-dark)); }
+    .stat-icon-badge {
+      width: 34px; height: 34px; border-radius: 50%; background: white;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 6px;
+    }
+    .stat-card .stat-label { font-size: 11px; opacity: 0.9; }
+    .stat-card .stat-val { font-size: 13px; font-weight: 600; margin-top: 2px; }
+
+    .spark-card .section-title { margin: 0 0 4px; }
+    .spark-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 11px; color: var(--plum-soft); }
+    .spark-legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+
+    .quick-links { display: flex; gap: 8px; margin-top: 14px; }
+    .quick-links .btn { flex: 1; }
+
+    /* ---- Thin summary (debts / people tabs) ---- */
+    .thin-summary {
+      display: flex; justify-content: space-between; align-items: center;
+      border-radius: 12px; padding: 9px 14px; font-size: 13px; margin-bottom: 12px;
+      background: #FFF1EA; color: var(--peach-dark);
+    }
+    .thin-summary.recv { background: #EAF3FA; color: var(--sky-dark); }
+
+    /* ---- Bulk action bar ---- */
+    .bulk-bar {
+      display: none; align-items: center; justify-content: space-between; gap: 8px;
+      background: var(--plum); color: white; border-radius: 14px; padding: 10px 12px; margin-bottom: 10px;
+      position: sticky; top: 8px; z-index: 4;
+    }
+    .bulk-bar.show { display: flex; }
+    .bulk-bar span { font-size: 13px; }
+    .bulk-bar .bulk-actions { display: flex; gap: 6px; }
+    .bulk-bar .btn { padding: 7px 10px; font-size: 12px; }
+
+    /* ---- Transaction sub-list (revolving) ---- */
+    .sub-list { margin-top: 8px; }
+    .sub-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 0; border-top: 1px solid #F3EFE6; gap: 8px;
+    }
+    .sub-row .sub-note { font-size: 13px; flex: 1; }
+    .sub-row .sub-amount { font-size: 13px; font-weight: 500; white-space: nowrap; }
+    .sub-row .sub-del {
+      border: none; background: none; color: var(--danger); font-size: 15px; cursor: pointer;
+      padding: 2px 4px; line-height: 1;
+    }
+    .sub-row.planned .sub-note::before { content: '🔮 '; }
+
+    /* ---- Person card ---- */
+    .person-name { font-family: 'Mitr', sans-serif; font-size: 18px; font-weight: 600; color: var(--plum); }
+    .person-total { font-size: 15px; font-weight: 600; color: var(--sky-dark); }
+    .person-items { margin-top: 10px; padding-left: 14px; border-left: 2.5px solid #EAF3FA; }
+    .person-item-row { padding: 8px 0; border-top: 1px solid #F3EFE6; }
+    .person-item-row:first-child { border-top: none; }
+    .person-item-name { font-size: 13px; font-weight: 500; color: var(--plum-soft); }
+
+    /* ---- Modal ---- */
+    .overlay {
+      display: none; position: fixed; inset: 0; background: rgba(74,63,85,0.35);
+      align-items: flex-end; justify-content: center; z-index: 20;
+    }
+    .overlay.show { display: flex; }
+    .sheet {
+      background: var(--cream); width: 100%; max-width: 480px; border-radius: 24px 24px 0 0;
+      padding: 20px 20px 28px; max-height: 85vh; overflow-y: auto;
+    }
+    .sheet h3 { margin: 0 0 14px; }
+    .field { margin-bottom: 12px; }
+    .field label { font-size: 13px; color: var(--plum-soft); display: block; margin-bottom: 5px; }
+    .field input, .field select {
+      width: 100%; border: 1.5px solid #EAE3D6; border-radius: 12px; padding: 10px 12px;
+      font-family: 'Sarabun'; font-size: 15px; background: white; color: var(--plum);
+    }
+    .toggle-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .toggle-opt {
+      text-align: center; padding: 10px 6px; border-radius: 12px; border: 1.5px solid #EAE3D6;
+      cursor: pointer; font-size: 13px; background: white;
+    }
+    .toggle-opt.active { border-color: var(--mint); background: #EEFAF3; color: var(--mint-dark); font-weight: 600; }
+
+    .toast {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--plum);
+      color: white; padding: 10px 18px; border-radius: 12px; font-size: 13px; z-index: 50; opacity: 0;
+      transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center;
+    }
+    .toast.show { opacity: 1; }
+    .toast-undo-btn {
+      border: none; background: none; color: var(--mint); font-weight: 600; font-size: 13px;
+      margin-left: 10px; cursor: pointer; text-decoration: underline; pointer-events: auto;
+    }
+    .quick-add-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid #F3EFE6; }
+    .quick-add-row:first-child { border-top: none; }
+    .quick-add-name { font-size: 13px; font-weight: 500; }
+    .quick-add-name .qa-tag { font-size: 11px; color: var(--plum-soft); font-weight: 400; margin-left: 4px; }
+
+    /* ---- Dark mode ---- */
+    body.dark {
+      --cream: #1E1B24;
+      --card: #2A2632;
+      --plum: #F0ECF5;
+      --plum-soft: #B3A9C2;
+    }
+    body.dark .login-form input,
+    body.dark .field input,
+    body.dark .field select { background: #2A2632; color: #F0ECF5; border-color: #3D3748; }
+    body.dark .month-nav-btn,
+    body.dark .reset-btn,
+    body.dark .btn-ghost { background: #3D3748; color: #F0ECF5; }
+    body.dark .badge.unpaid { background: #4A3A2E; color: #FFB58A; }
+    body.dark .badge.paid { background: #274B37; color: #8FE0B4; }
+    body.dark .badge.none { background: #3A3448; color: #C9BEDD; }
+    body.dark .thin-summary { background: #3A2E28; color: #FFB58A; }
+    body.dark .thin-summary.recv { background: #243947; color: #8FC6EA; }
+    body.dark .sub-row,
+    body.dark .person-item-row,
+    body.dark .quick-add-row { border-color: #3D3748; }
+    body.dark .person-items { border-left-color: #3D3748; }
+    body.dark .toggle-opt { background: #2A2632; border-color: #3D3748; }
+    body.dark .toggle-opt.active { background: #1F3A2C; border-color: var(--mint); }
+    body.dark .toast { background: #F0ECF5; color: #2A2632; }
+    body.dark .tabbar { background: #2A2632; }
+    .cat-chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px; }
+    .cat-chip {
+      flex-shrink: 0; font-size: 12px; padding: 6px 12px; border-radius: 20px; border: 1.5px solid #EAE3D6;
+      background: white; color: var(--plum-soft); cursor: pointer; white-space: nowrap;
+    }
+    .cat-chip.active { background: var(--purple); border-color: var(--purple); color: white; font-weight: 600; }
+    .cat-breakdown-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+    .cat-breakdown-row .cb-name { font-size: 12px; width: 76px; flex-shrink: 0; color: var(--plum-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cat-breakdown-row .cb-bar-wrap { flex: 1; background: #F3EFE6; border-radius: 8px; height: 10px; overflow: hidden; }
+    .cat-breakdown-row .cb-bar { height: 100%; background: var(--purple); border-radius: 8px; }
+    .cat-breakdown-row .cb-amount { font-size: 12px; font-weight: 600; width: 70px; text-align: right; flex-shrink: 0; }
+    body.dark .cat-chip { background: #2A2632; border-color: #3D3748; }
+    body.dark .cat-breakdown-row .cb-bar-wrap { background: #3D3748; }
+  </style>
+</head>
+<body>
+
+  <div id="lock">
+    <div class="lock-emoji">🐷</div>
+    <h2>สวัสดีจ้า</h2>
+    <p>เข้าสู่ระบบเพื่อดูหนี้และเงินของคุณ</p>
+    <div class="login-form">
+      <div class="field"><input type="email" id="loginEmail" placeholder="อีเมล" autocomplete="username"></div>
+      <div class="field" style="position:relative;">
+        <input type="password" id="loginPassword" placeholder="รหัสผ่าน" autocomplete="current-password" style="padding-right:44px;">
+        <button type="button" onclick="togglePasswordView()" id="togglePwBtn"
+          style="position:absolute; right:6px; top:50%; transform:translateY(-50%); border:none; background:none; font-size:18px; cursor:pointer; padding:6px;">👁️</button>
+      </div>
+      <button class="btn btn-mint btn-block" id="loginBtn" onclick="doLogin()">เข้าสู่ระบบ</button>
+    </div>
+    <div id="lock-error"></div>
+  </div>
+
+  <div class="app" id="app" style="display:none;">
+
+    <!-- ================= HOME ================= -->
+    <div class="view active" id="view-home">
+      <div class="greeting-row">
+        <div class="greeting greeting-text" id="greetingText">สวัสดี 👋</div>
+        <button class="reset-btn" onclick="resetToCurrentMonth()" title="รีเซตเป็นเดือนปัจจุบัน">⟳</button>
+      </div>
+
+      <div class="month-nav">
+        <button class="month-nav-btn month-prev-btn" onclick="changeMonth(-1)" title="ดูเดือนย้อนหลัง">‹</button>
+        <p class="month-label"><span class="month-main month-label-text" id="monthLabel">เดือนนี้</span></p>
+        <button class="month-nav-btn month-next-btn" onclick="changeMonth(1)">›</button>
+      </div>
+
+      <div class="summary-card">
+        <div class="label">คงเหลือสุทธิโดยประมาณ</div>
+        <div class="amount" id="netAmount">฿0</div>
+        <div class="summary-sparkle">✨</div>
+        <div class="summary-decor">🐷</div>
+      </div>
+      <div class="future-note" id="futureNote" style="display:none;">
+        🔮 กำลังดูเดือนล่วงหน้า — ยอดนี้เป็นการประมาณการคร่าวๆ ยังไม่ใช่เดือนปัจจุบัน
+      </div>
+      <div class="future-note" id="pastNote" style="display:none; color:var(--sky-dark); background:#EAF3FA;">
+        📜 กำลังดูข้อมูลย้อนหลัง (อ่านอย่างเดียว แก้ไข/ลบไม่ได้)
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card salary">
+          <div class="stat-icon-badge">
+            <svg viewBox="0 0 40 40" width="22" height="22">
+              <ellipse cx="20" cy="24" rx="13" ry="10" fill="#4FAE7A"/>
+              <circle cx="9" cy="17" r="3.3" fill="#4FAE7A"/>
+              <circle cx="29" cy="16" r="2.8" fill="#4FAE7A"/>
+              <ellipse cx="20" cy="25" rx="4" ry="3" fill="#EAFBF1"/>
+              <circle cx="18" cy="24.5" r="1" fill="#4FAE7A"/>
+              <circle cx="22" cy="24.5" r="1" fill="#4FAE7A"/>
+              <circle cx="12" cy="21" r="1.3" fill="#EAFBF1"/>
+              <path d="M31 27 q4 1 3 5" stroke="#4FAE7A" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="16" y="32" width="2.5" height="4" rx="1" fill="#4FAE7A"/>
+              <rect x="22" y="32" width="2.5" height="4" rx="1" fill="#4FAE7A"/>
+            </svg>
+          </div>
+          <div class="stat-label">เงินเดือน</div>
+          <div class="stat-val" id="salaryVal">฿0</div>
+        </div>
+        <div class="stat-card debt">
+          <div class="stat-icon-badge">
+            <svg viewBox="0 0 40 40" width="22" height="22">
+              <path d="M10 6h20v28l-3-2-3 2-3-2-3 2-3-2-3 2-2-2z" fill="#E8927D"/>
+              <line x1="14" y1="13" x2="26" y2="13" stroke="#FFF8F0" stroke-width="2"/>
+              <line x1="14" y1="18" x2="26" y2="18" stroke="#FFF8F0" stroke-width="2"/>
+              <line x1="14" y1="23" x2="22" y2="23" stroke="#FFF8F0" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="stat-label">ต้องจ่าย</div>
+          <div class="stat-val" id="debtVal">฿0</div>
+        </div>
+        <div class="stat-card recv">
+          <div class="stat-icon-badge">
+            <svg viewBox="0 0 40 40" width="22" height="22">
+              <path d="M5 23 q11 -4 11 4 q0 6 -6 6 h-5z" fill="#5A96C4"/>
+              <path d="M9 23 q0 -4 4 -4 h6 q3 0 5 2 l6 4.5 q2 1.5 0 3 q-2 1.5 -4 0 l-4.5 -3" fill="none" stroke="#5A96C4" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="27" cy="13" r="6" fill="#5A96C4"/>
+              <text x="27" y="16" font-size="7" fill="#EAF3FA" text-anchor="middle" font-family="Arial">฿</text>
+            </svg>
+          </div>
+          <div class="stat-label">ต้องเก็บ</div>
+          <div class="stat-val" id="recvVal">฿0</div>
+        </div>
+      </div>
+
+      <div class="card spark-card" style="margin-top:14px;">
+        <div class="section-title"><span>แนวโน้มรายเดือน 📈</span><button class="btn-link" onclick="openStatsModal()">ดูเพิ่ม</button></div>
+        <div id="sparklineWrap"></div>
+        <div class="spark-legend">
+          <span><span class="dot" style="background:var(--peach-dark);"></span>จ่ายไปแล้ว</span>
+          <span><span class="dot" style="background:var(--sky-dark);"></span>ได้รับแล้ว</span>
+        </div>
+      </div>
+
+      <div class="card" id="categoryBreakdownCard" style="display:none;">
+        <div class="section-title"><span>แยกตามหมวดหมู่ (เดือนนี้) 🏷️</span></div>
+        <div id="categoryBreakdownWrap"></div>
+      </div>
+
+      <div id="quickAddRevolvingSection" style="display:none;">
+        <div class="section-title"><span>เพิ่มยอดรูดบัตรไว 🏃</span></div>
+        <div class="card" id="quickAddRevolvingWrap"></div>
+      </div>
+
+      <div class="section-title"><span>ใกล้ครบกำหนด 🔥</span></div>
+      <div id="upcomingList"></div>
+
+      <div class="quick-links">
+        <button class="btn btn-peach" onclick="switchTab('debts')">ดูหนี้ทั้งหมด 💳</button>
+        <button class="btn btn-purple" onclick="switchTab('people')">คนติดเรา 🧾</button>
+      </div>
+      <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="openCompletedModal()">🏆 รายการที่จบแล้ว</button>
+    </div>
+
+    <!-- ================= DEBTS ================= -->
+    <div class="view" id="view-debts">
+      <div class="greeting greeting-text">สวัสดี 👋</div>
+
+      <div class="month-nav">
+        <button class="month-nav-btn month-prev-btn" onclick="changeMonth(-1)" title="ดูเดือนย้อนหลัง">‹</button>
+        <p class="month-label"><span class="month-main month-label-text">เดือนนี้</span></p>
+        <button class="month-nav-btn month-next-btn" onclick="changeMonth(1)">›</button>
+      </div>
+
+      <div class="thin-summary" id="thinSummaryDebts">
+        <span>ต้องจ่ายรวม <b id="thinDebtVal">฿0</b></span>
+        <button class="btn-link" onclick="openCompletedModal('payable')">จบแล้ว 🏆</button>
+      </div>
+      <div class="bulk-bar" id="bulkBarDebts">
+        <span id="bulkCountDebts">เลือกแล้ว 0 รายการ</span>
+        <div class="bulk-actions">
+          <button class="btn btn-mint" onclick="bulkSetStatus('debts','paid')">จ่ายแล้ว</button>
+          <button class="btn btn-ghost" onclick="bulkSetStatus('debts','unpaid')">ยังไม่จ่าย</button>
+        </div>
+      </div>
+      <div class="cat-chip-row" id="catChipsDebts"></div>
+      <div class="section-title" id="debtsUrgentTitle" style="display:none;"><span>ใกล้ครบกำหนด 🔥</span></div>
+      <div id="debtsUrgentList"></div>
+      <div class="section-title"><span>หนี้ที่ต้องจ่าย 💳</span></div>
+      <div id="debtsList"></div>
+    </div>
+
+    <!-- ================= PEOPLE ================= -->
+    <div class="view" id="view-people">
+      <div class="greeting greeting-text">สวัสดี 👋</div>
+
+      <div class="month-nav">
+        <button class="month-nav-btn month-prev-btn" onclick="changeMonth(-1)" title="ดูเดือนย้อนหลัง">‹</button>
+        <p class="month-label"><span class="month-main month-label-text">เดือนนี้</span></p>
+        <button class="month-nav-btn month-next-btn" onclick="changeMonth(1)">›</button>
+      </div>
+
+      <div class="thin-summary recv" id="thinSummaryPeople">
+        <span>ต้องเก็บรวม <b id="thinRecvVal">฿0</b></span>
+        <button class="btn-link" onclick="openCompletedModal('receivable')">จบแล้ว 🏆</button>
+      </div>
+      <div class="bulk-bar" id="bulkBarPeople">
+        <span id="bulkCountPeople">เลือกแล้ว 0 รายการ</span>
+        <div class="bulk-actions">
+          <button class="btn btn-mint" onclick="bulkSetStatus('people','paid')">ได้แล้ว</button>
+          <button class="btn btn-ghost" onclick="bulkSetStatus('people','unpaid')">ยังไม่ได้</button>
+        </div>
+      </div>
+      <div class="cat-chip-row" id="catChipsPeople"></div>
+      <div class="section-title"><span>คนที่ติดเรา 🧾</span></div>
+      <div id="peopleList"></div>
+    </div>
+
+    <!-- ================= SETTINGS ================= -->
+    <div class="view" id="view-settings">
+      <div class="greeting greeting-text">สวัสดี 👋</div>
+
+      <div class="month-nav">
+        <button class="month-nav-btn month-prev-btn" onclick="changeMonth(-1)" title="ดูเดือนย้อนหลัง">‹</button>
+        <p class="month-label"><span class="month-main month-label-text">เดือนนี้</span></p>
+        <button class="month-nav-btn month-next-btn" onclick="changeMonth(1)">›</button>
+      </div>
+
+      <div class="section-title"><span>ตั้งค่า ⚙️</span></div>
+
+      <div class="card">
+        <label style="font-size:13px;color:var(--plum-soft);">เงินเดือนเดือนนี้</label>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input type="number" id="salaryInput" placeholder="0" style="flex:1;border:1.5px solid #EAE3D6;border-radius:12px;padding:10px 12px;font-size:15px;">
+          <button class="btn btn-mint" onclick="saveSalary()">บันทึก</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <label style="font-size:13px;color:var(--plum-soft);">หมวดหมู่รายการ 🏷️</label>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input id="newCategoryInput" placeholder="เช่น ค่าไฟ, กินเที่ยว" style="flex:1;border:1.5px solid #EAE3D6;border-radius:12px;padding:10px 12px;font-size:15px;font-family:'Sarabun';">
+          <button class="btn btn-mint" onclick="addCategory()">เพิ่ม</button>
+        </div>
+        <div id="categoryList" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card">
+        <label style="font-size:13px;color:var(--plum-soft);">แจ้งเตือนสรุปหนี้ผ่าน LINE</label>
+        <button class="btn btn-block" style="background:var(--line-color); color:white; margin-top:10px;" onclick="shareLine()">ส่งสรุปไป LINE 💬</button>
+      </div>
+
+      <div class="card">
+        <label style="font-size:13px;color:var(--plum-soft);">ส่งออกข้อมูล</label>
+        <button class="btn btn-purple btn-block" style="margin-top:10px;" onclick="exportCSV()">ดาวน์โหลด CSV 📄</button>
+      </div>
+
+      <div class="card">
+        <label style="font-size:13px;color:var(--plum-soft);">ธีม</label>
+        <button class="btn btn-ghost btn-block" id="darkModeToggle" style="margin-top:10px;" onclick="toggleDarkMode()">🌙 โหมดมืด</button>
+      </div>
+
+      <div class="card">
+        <label style="font-size:13px;color:var(--plum-soft);">บัญชี</label>
+        <div class="item-sub" id="accountEmail" style="margin:8px 0;"></div>
+        <button class="btn btn-danger btn-block" onclick="doLogout()">ออกจากระบบ</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="fab-wrap" id="fabWrap" style="display:none;">
+    <button class="fab" id="fab" onclick="openAddModal()">+</button>
+  </div>
+
+  <div class="tabbar" id="tabbar" style="display:none;">
+    <button class="tab-btn active" data-view="home" onclick="switchTab('home')">
+      <span class="ic">🏠</span>โฮม
+    </button>
+    <button class="tab-btn" data-view="debts" onclick="switchTab('debts')">
+      <span class="ic">💳</span>หนี้
+    </button>
+    <button class="tab-btn" data-view="people" onclick="switchTab('people')">
+      <span class="ic">🧾</span>คนติดเรา
+    </button>
+    <button class="tab-btn" data-view="settings" onclick="switchTab('settings')">
+      <span class="ic">⚙️</span>ตั้งค่า
+    </button>
+  </div>
+
+  <!-- Add Obligation Modal -->
+  <div class="overlay" id="modalObligation">
+    <div class="sheet">
+      <h3 id="obligationModalTitle">เพิ่มหนี้ใหม่</h3>
+      <input type="hidden" id="obligationDirection" value="payable">
+      <input type="hidden" id="obligationPersonId" value="">
+      <div class="field"><label>ชื่อรายการ</label><input id="obligationName" placeholder="เช่น บัตร KTC, ค่าไฟ, ผ่อนมือถือ"></div>
+
+      <div class="field">
+        <label>รูปแบบการจ่าย</label>
+        <div class="toggle-group">
+          <div class="toggle-opt active" id="type_one_time" onclick="setPaymentType('one_time')">จ่ายครั้งเดียวจบ</div>
+          <div class="toggle-opt" id="type_installment" onclick="setPaymentType('installment')">ผ่อนเป็นงวด (มีกำหนดจบ)</div>
+          <div class="toggle-opt" id="type_recurring" onclick="setPaymentType('recurring')">จ่ายทุกเดือน (ไม่จบ)</div>
+          <div class="toggle-opt" id="type_revolving" onclick="setPaymentType('revolving')">ยอดหมุนเวียน (บัตรเครดิต)</div>
+        </div>
+      </div>
+
+      <div id="amountField" class="field">
+        <label id="amountLabel">จำนวนเงิน</label>
+        <input type="number" id="obligationAmount" placeholder="0">
+      </div>
+
+      <div id="interestField" class="field" style="display:none;">
+        <label>ดอกเบี้ยต่อเดือน (%) — ไม่บังคับ</label>
+        <input type="number" id="obligationInterestRate" placeholder="เช่น 2.5" step="0.01">
+      </div>
+
+      <div id="installmentFields" style="display:none;">
+        <div class="field"><label>งวดที่กำลังจะจ่าย / ทั้งหมดกี่งวด</label>
+          <div class="item-sub" style="margin:-2px 0 6px;">ถ้าจ่ายไปแล้ว 2 จาก 3 งวด ให้ใส่งวดปัจจุบัน = 3 (งวดที่กำลังจะจ่าย)</div>
+          <div style="display:flex; gap:8px;">
+            <input type="number" id="obligationCurrentInstallment" placeholder="งวดที่กำลังจะจ่าย เช่น 3" style="flex:1;">
+            <input type="number" id="obligationTotalInstallments" placeholder="ทั้งหมด เช่น 3" style="flex:1;">
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>จ่ายวันที่เท่าไหร่ของเดือน (ไม่บังคับ)</label>
+        <input type="number" id="obligationDueDay" min="1" max="31" placeholder="เช่น 5">
+      </div>
+
+      <div class="field">
+        <label>หมวดหมู่ (ไม่บังคับ)</label>
+        <select id="obligationCategory" onchange="handleCategorySelectChange()">
+          <option value="">— ไม่ระบุ —</option>
+          <option value="__new__">+ เพิ่มหมวดหมู่ใหม่...</option>
+        </select>
+        <input id="obligationNewCategoryName" placeholder="ชื่อหมวดหมู่ใหม่" style="display:none; margin-top:8px;">
+      </div>
+
+      <button class="btn btn-mint btn-block" onclick="submitAddObligation()">เพิ่มรายการ</button>
+    </div>
+  </div>
+
+  <!-- Add Person Modal -->
+  <div class="overlay" id="modalPerson">
+    <div class="sheet">
+      <h3>เพิ่มคนที่ติดเรา</h3>
+      <div class="field"><label>ชื่อ</label><input id="personName" placeholder="ชื่อเล่น หรือชื่อจริง"></div>
+      <button class="btn btn-mint btn-block" onclick="submitAddPerson()">เพิ่ม</button>
+    </div>
+  </div>
+
+  <!-- Add Transaction Modal (revolving) -->
+  <div class="overlay" id="modalTx">
+    <div class="sheet">
+      <h3 id="txModalTitle">เพิ่มรายการรูดบัตร / ยอดเพิ่ม</h3>
+      <input type="hidden" id="txObligationId">
+      <div class="field"><label>รายการ</label><input id="txNote" placeholder="เช่น ค่าอาหาร, ค่าน้ำมัน"></div>
+      <div class="field"><label>จำนวนเงิน</label><input type="number" id="txAmount" placeholder="0"></div>
+      <div class="item-sub" id="txMonthNote" style="margin-bottom:10px;"></div>
+      <button class="btn btn-mint btn-block" onclick="submitAddTx()">เพิ่มรายการ</button>
+    </div>
+  </div>
+
+  <!-- Completed items sheet -->
+  <div class="overlay" id="modalCompleted">
+    <div class="sheet">
+      <h3>🏆 รายการที่จบแล้ว</h3>
+      <div id="completedContent"></div>
+    </div>
+  </div>
+
+  <!-- Full stats sheet -->
+  <div class="overlay" id="modalStats">
+    <div class="sheet">
+      <h3>📈 สถิติรายเดือน</h3>
+      <div id="statsContent"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
