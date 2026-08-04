@@ -11,22 +11,31 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function subscribeToPush(userId) {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-  const reg = await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-  if (!sub) {
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
+  try {
+    console.log('[push] subscribeToPush start, userId:', userId);
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { console.log('[push] no SW or PushManager support'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    console.log('[push] SW ready:', reg);
+    let sub = await reg.pushManager.getSubscription();
+    console.log('[push] existing sub:', sub);
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+      console.log('[push] new sub created:', sub);
+    }
+    const json = sub.toJSON();
+    const { error } = await sb.from('push_subscriptions').upsert({
+      user_id: userId,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth
+    }, { onConflict: 'endpoint' });
+    console.log('[push] upsert error:', error);
+  } catch (e) {
+    console.error('[push] CAUGHT ERROR:', e);
   }
-  const json = sub.toJSON();
-  await sb.from('push_subscriptions').upsert({
-    user_id: userId,
-    endpoint: json.endpoint,
-    p256dh: json.keys.p256dh,
-    auth: json.keys.auth
-  }, { onConflict: 'endpoint' });
 }
 // ======================================================================
 
@@ -988,10 +997,13 @@ if ("serviceWorker" in navigator) {
     });
 }
 async function enableNotification() {
-    if (!("Notification" in window)) return;
+    console.log('[push] enableNotification called');
+    if (!("Notification" in window)) { console.log('[push] Notification API not supported'); return; }
     const permission = await Notification.requestPermission();
+    console.log('[push] permission:', permission);
     if (permission === "granted") {
-        const { data: { user } } = await sb.auth.getUser();
+        const { data: { user }, error: userErr } = await sb.auth.getUser();
+        console.log('[push] user:', user, 'error:', userErr);
         if (user) subscribeToPush(user.id);
     }
 }
