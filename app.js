@@ -351,12 +351,17 @@ function interestSuffix(o) {
   return (o.payment_type === 'revolving' && rate > 0) ? ' • ดอกเบี้ย ' + rate + '%/ด' : '';
 }
 function isUrgent(o) {
-  if (currentMonthKey() !== REAL_CURRENT_MONTH) return false; // ดูเดือนอื่นอยู่ ไม่ต้องเตือน
+  if (currentMonthKey() !== REAL_CURRENT_MONTH) return false;
   if (!o.due_day) return false;
-  const today = new Date().getDate();
-  return (o.due_day - today) <= 3;
+  const today = new Date();
+  const dueDate = new Date(today.getFullYear(), today.getMonth(), o.due_day);
+  // ถ้า due_day น้อยกว่าวันนี้มาก (เช่น due_day=2 แต่วันนี้ 28) ให้ถือว่าเป็นเดือนหน้า
+  if (dueDate < new Date(today.getFullYear(), today.getMonth(), today.getDate() - 15)) {
+    dueDate.setMonth(dueDate.getMonth() + 1);
+  }
+  const diffDays = Math.round((dueDate - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+  return diffDays <= 3;
 }
-
 // ---------- SELECTION / BULK ----------
 function clearSelections() { selectedDebts.clear(); selectedPeopleItems.clear(); }
 function toggleSelect(kind, id, checked) {
