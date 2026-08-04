@@ -18,3 +18,13 @@ self.addEventListener("fetch",e=>{
         caches.match(e.request).then(r=>r||fetch(e.request))
     );
 });
+
+self.addEventListener("push", e => {
+  const data = e.data ? e.data.json() : {};
+  e.waitUntil(
+    self.registration.showNotification(data.title || "แจ้งเตือนหนี้", {
+      body: data.body || "",
+      icon: "./icon-192.png"
+    })
+  );
+});
