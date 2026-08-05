@@ -559,7 +559,7 @@ function renderObligationCard(d, kind) {
     badges.push('<span class="badge none">ไม่มีหนี้ค้าง</span>');
     if (Number(d.computedAmount) < 0) amountClass = 'neg';
   }
-  if (d.status === 'paid' && d.payment_type !== 'installment' && d.payment_type !== 'revolving') {
+  if (d.status === 'paid' && d.payment_type !== 'revolving') {
     badges.push('<span class="badge paid">จ่ายแล้ว ✓</span>');
   }
   const badgeHtml = badges.join('');
@@ -665,7 +665,7 @@ function renderPeople() {
         if (i.payment_type === 'revolving' && Number(i.computedAmount) <= 0) {
           badges.push('<span class="badge none">ไม่มีค้าง</span>');
         }
-        if (i.status === 'paid' && i.payment_type !== 'installment' && i.payment_type !== 'revolving') {
+        if (i.status === 'paid' && i.payment_type !== 'revolving') {ห
           badges.push('<span class="badge paid">ได้แล้ว ✓</span>');
         }
         const badgeHtml = badges.join('');
