@@ -665,7 +665,7 @@ function renderPeople() {
         if (i.payment_type === 'revolving' && Number(i.computedAmount) <= 0) {
           badges.push('<span class="badge none">ไม่มีค้าง</span>');
         }
-        if (i.status === 'paid' && i.payment_type !== 'revolving') {ห
+        if (i.status === 'paid' && i.payment_type !== 'revolving') {
           badges.push('<span class="badge paid">ได้แล้ว ✓</span>');
         }
         const badgeHtml = badges.join('');
