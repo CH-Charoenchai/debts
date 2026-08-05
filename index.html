@@ -8,6 +8,7 @@
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#6FCF97">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Debts">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -79,9 +80,9 @@
     .item-sub { font-size: 12px; color: var(--plum-soft); margin-top: 2px; }
     .item-amount { font-weight: 600; font-size: 16px; }
     .item-amount.neg { color: var(--mint-dark); }
-    .badge { font-size: 11px; padding: 3px 9px; border-radius: 20px; border: none; cursor: default; font-family: 'Sarabun'; }
+    .badge { font-size: 11px; padding: 3px 9px; border-radius: 20px; border: none; cursor: default; font-family: 'Sarabun'; display: inline-block; margin-top: 4px; }
     .badge.unpaid { background: #FFE8D6; color: var(--peach-dark); }
-    .badge.paid { background: #DFF3E7; color: var(--mint-dark); cursor: pointer; }
+    .badge.paid { background: #DFF3E7; color: var(--mint-dark); }
     .badge.none { background: #EFE9F5; color: var(--plum-soft); }
     .card-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: flex-end; }
     .btn {
@@ -138,7 +139,7 @@
     }
     .month-nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     .month-label { color: var(--plum-soft); font-size: 13px; margin: 0; text-align: center; }
-    .month-label .month-main { font-size: 14px; font-weight: 600; color: var(--plum); font-family: 'Mitr', sans-serif; }
+    .month-label .month-main { font-size: 17px; font-weight: 700; color: var(--plum); font-family: 'Mitr', sans-serif; }
     .future-note {
       font-size: 11px; color: var(--purple-dark); background: #EFEBFB; border-radius: 10px;
       padding: 4px 10px; text-align: center; margin-top: 8px;
@@ -380,7 +381,7 @@
               <line x1="14" y1="23" x2="22" y2="23" stroke="#FFF8F0" stroke-width="2"/>
             </svg>
           </div>
-          <div class="stat-label">ต้องจ่าย</div>
+          <div class="stat-label">ยอดจ่ายรวม</div>
           <div class="stat-val" id="debtVal">฿0</div>
         </div>
         <div class="stat-card recv">
@@ -392,7 +393,7 @@
               <text x="27" y="16" font-size="7" fill="#EAF3FA" text-anchor="middle" font-family="Arial">฿</text>
             </svg>
           </div>
-          <div class="stat-label">ต้องเก็บ</div>
+          <div class="stat-label">ยอดเก็บรวม</div>
           <div class="stat-val" id="recvVal">฿0</div>
         </div>
       </div>
@@ -428,7 +429,10 @@
 
     <!-- ================= DEBTS ================= -->
     <div class="view" id="view-debts">
-      <div class="greeting greeting-text">สวัสดี 👋</div>
+      <div class="greeting-row">
+        <div class="greeting greeting-text">สวัสดี 👋</div>
+        <button class="reset-btn" onclick="resetToCurrentMonth()" title="รีเซตเป็นเดือนปัจจุบัน">⟳</button>
+      </div>
 
       <div class="month-nav">
         <button class="month-nav-btn month-prev-btn" onclick="changeMonth(-1)" title="ดูเดือนย้อนหลัง">‹</button>
@@ -437,7 +441,7 @@
       </div>
 
       <div class="thin-summary" id="thinSummaryDebts">
-        <span>ต้องจ่ายรวม <b id="thinDebtVal">฿0</b></span>
+        <span>ยอดจ่ายรวม <b id="thinDebtVal">฿0</b></span>
         <button class="btn-link" onclick="openCompletedModal('payable')">จบแล้ว 🏆</button>
       </div>
       <div class="bulk-bar" id="bulkBarDebts">
@@ -456,7 +460,10 @@
 
     <!-- ================= PEOPLE ================= -->
     <div class="view" id="view-people">
-      <div class="greeting greeting-text">สวัสดี 👋</div>
+      <div class="greeting-row">
+        <div class="greeting greeting-text">สวัสดี 👋</div>
+        <button class="reset-btn" onclick="resetToCurrentMonth()" title="รีเซตเป็นเดือนปัจจุบัน">⟳</button>
+      </div>
 
       <div class="month-nav">
         <button class="month-nav-btn month-prev-btn" onclick="changeMonth(-1)" title="ดูเดือนย้อนหลัง">‹</button>
@@ -465,7 +472,7 @@
       </div>
 
       <div class="thin-summary recv" id="thinSummaryPeople">
-        <span>ต้องเก็บรวม <b id="thinRecvVal">฿0</b></span>
+        <span>ยอดเก็บรวม <b id="thinRecvVal">฿0</b></span>
         <button class="btn-link" onclick="openCompletedModal('receivable')">จบแล้ว 🏆</button>
       </div>
       <div class="bulk-bar" id="bulkBarPeople">
@@ -482,7 +489,10 @@
 
     <!-- ================= SETTINGS ================= -->
     <div class="view" id="view-settings">
-      <div class="greeting greeting-text">สวัสดี 👋</div>
+      <div class="greeting-row">
+        <div class="greeting greeting-text">สวัสดี 👋</div>
+        <button class="reset-btn" onclick="resetToCurrentMonth()" title="รีเซตเป็นเดือนปัจจุบัน">⟳</button>
+      </div>
 
       <div class="month-nav">
         <button class="month-nav-btn month-prev-btn" onclick="changeMonth(-1)" title="ดูเดือนย้อนหลัง">‹</button>
@@ -551,7 +561,7 @@
     </button>
   </div>
 
-  <!-- Add Obligation Modal -->
+  <!-- Add/Edit Obligation Modal -->
   <div class="overlay" id="modalObligation">
     <div class="sheet">
       <h3 id="obligationModalTitle">เพิ่มหนี้ใหม่</h3>
@@ -559,7 +569,7 @@
       <input type="hidden" id="obligationPersonId" value="">
       <div class="field"><label>ชื่อรายการ</label><input id="obligationName" placeholder="เช่น บัตร KTC, ค่าไฟ, ผ่อนมือถือ"></div>
 
-      <div class="field">
+      <div class="field" id="typeToggleGroup">
         <label>รูปแบบการจ่าย</label>
         <div class="toggle-group">
           <div class="toggle-opt active" id="type_one_time" onclick="setPaymentType('one_time')">จ่ายครั้งเดียวจบ</div>
@@ -572,11 +582,6 @@
       <div id="amountField" class="field">
         <label id="amountLabel">จำนวนเงิน</label>
         <input type="number" id="obligationAmount" placeholder="0">
-      </div>
-
-      <div id="interestField" class="field" style="display:none;">
-        <label>ดอกเบี้ยต่อเดือน (%) — ไม่บังคับ</label>
-        <input type="number" id="obligationInterestRate" placeholder="เช่น 2.5" step="0.01">
       </div>
 
       <div id="installmentFields" style="display:none;">
@@ -594,6 +599,12 @@
         <input type="number" id="obligationDueDay" min="1" max="31" placeholder="เช่น 5">
       </div>
 
+      <div id="dueMonthField" class="field" style="display:none;">
+        <label>เดือนที่ต้องจ่าย (ไม่บังคับ)</label>
+        <div class="item-sub" style="margin:-2px 0 6px;">ถ้าไม่เลือก รายการนี้จะโชว์ทุกเดือนจนกว่าจะจ่าย (เหมือนเดิม)</div>
+        <input type="month" id="obligationDueMonth">
+      </div>
+
       <div class="field">
         <label>หมวดหมู่ (ไม่บังคับ)</label>
         <select id="obligationCategory" onchange="handleCategorySelectChange()">
@@ -603,7 +614,7 @@
         <input id="obligationNewCategoryName" placeholder="ชื่อหมวดหมู่ใหม่" style="display:none; margin-top:8px;">
       </div>
 
-      <button class="btn btn-mint btn-block" onclick="submitAddObligation()">เพิ่มรายการ</button>
+      <button class="btn btn-mint btn-block" id="obligationSubmitBtn" onclick="submitAddObligation()">เพิ่มรายการ</button>
     </div>
   </div>
 
