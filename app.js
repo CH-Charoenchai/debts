@@ -45,6 +45,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let DATA = null;
 let currentTab = 'home';
 let paymentType = 'one_time';
+let editingObligationId = null; // ไม่ว่างเมื่อกำลังแก้ไขรายการเดิม (ไม่ใช่เพิ่มใหม่)
 let monthOffset = 0;          // 0 = เดือนปัจจุบัน, +1/+2 = ล่วงหน้า, ติดลบ = ย้อนหลัง (อ่านจาก snapshot)
 const MIN_MONTH_OFFSET = -6;  // ดูย้อนหลังได้ 6 เดือน (จาก snapshot)
 const MAX_MONTH_OFFSET = 2;   // ล่วงหน้าได้สูงสุด 2 เดือน (ดูประมาณการ/บันทึกรายจ่ายล่วงหน้า)
@@ -180,19 +181,23 @@ async function loadData() {
   }
 }
 
+// จ่ายแล้ว (ตามสถานะที่กดไว้) — ใช้กับ badge/ปุ่ม
 function isDoneObl(o) {
   return o.status === 'paid' || (o.payment_type === 'installment' && o.completed === true);
 }
+// จบจริง ๆ (ย้ายไปหน้า "จบแล้ว") — เฉพาะผ่อนงวดที่ครบทุกงวดเท่านั้น
+// รายการจ่ายครั้งเดียว/รายเดือนที่กด "จ่ายแล้ว" จะยังโชว์ในลิสต์ปกติพร้อม badge ต่อไป
+function isFullyDone(o) {
+  return o.payment_type === 'installment' && o.completed === true;
+}
 
 function computeTotals() {
+  // ยอดรวมใช้ยอดเต็มเสมอ ไม่ว่าจะจ่าย/เก็บแล้วหรือยัง เพื่อให้เห็นภาพรวมทั้งหมด ไม่ผันผวนตามสถานะ
   const obligations = visibleObligations();
   const payables = obligations.filter(o => o.direction === 'payable');
   const receivables = obligations.filter(o => o.direction === 'receivable');
-  DATA.totalDebt = payables.reduce((s, o) =>
-    s + (isDoneObl(o) ? 0 : Math.max(0, Number(o.computedAmount || 0))), 0);
-  DATA.totalReceivable = receivables
-    .filter(o => !isDoneObl(o))
-    .reduce((s, o) => s + Number(o.computedAmount || 0), 0);
+  DATA.totalDebt = payables.reduce((s, o) => s + Math.max(0, Number(o.computedAmount || 0)), 0);
+  DATA.totalReceivable = receivables.reduce((s, o) => s + Number(o.computedAmount || 0), 0);
   DATA.netRemaining = (Number(DATA.salary) || 0) - DATA.totalDebt + DATA.totalReceivable;
 }
 
@@ -311,7 +316,7 @@ function renderQuickAddRevolving() {
   const section = document.getElementById('quickAddRevolvingSection');
   const wrap = document.getElementById('quickAddRevolvingWrap');
   if (isReadonlyMonth) { section.style.display = 'none'; wrap.innerHTML = ''; return; }
-  const revolvingItems = visibleObligations().filter(o => o.payment_type === 'revolving' && !isDoneObl(o));
+  const revolvingItems = visibleObligations().filter(o => o.payment_type === 'revolving' && !isFullyDone(o));
   if (!revolvingItems.length) { section.style.display = 'none'; wrap.innerHTML = ''; return; }
   section.style.display = 'block';
   wrap.innerHTML = revolvingItems.map(o => {
@@ -345,10 +350,6 @@ function categorySuffix(o) {
   if (!o.category_id || !DATA.categories) return '';
   const cat = DATA.categories.find(c => String(c.id) === String(o.category_id));
   return cat ? ' • ' + cat.name : '';
-}
-function interestSuffix(o) {
-  const rate = Number(o.interest_rate_percent || 0);
-  return (o.payment_type === 'revolving' && rate > 0) ? ' • ดอกเบี้ย ' + rate + '%/ด' : '';
 }
 function isUrgent(o) {
   if (currentMonthKey() !== REAL_CURRENT_MONTH) return false;
@@ -396,6 +397,22 @@ async function toggleObligationStatus(id, currentStatus) {
   loadData();
   showToast(goingToPaid ? 'จ่ายแล้ว เก่งมาก 👏' : 'แก้เป็นยังไม่จ่ายแล้วนะ');
 }
+// ยอดหมุนเวียน (บัตรเครดิต): จ่ายบางส่วนได้ ไม่บังคับจ่ายเต็มยอด
+// บันทึกเป็น transaction ติดลบ (หักออกจากยอดคงเหลือ) แทนการ mark สถานะ paid ตรงๆ
+async function payRevolvingAmount(id) {
+  const o = DATA.obligations.find(x => String(x.id) === String(id));
+  if (!o) return;
+  const current = Number(o.computedAmount || 0);
+  const input = prompt('จ่ายไปเท่าไหร่? (ยอดคงเหลือตอนนี้ ' + fmt(current) + ')', current > 0 ? current : '');
+  if (input === null) return;
+  const amt = Number(input);
+  if (isNaN(amt) || amt <= 0) { showToast('ใส่จำนวนเงินให้ถูกต้อง'); return; }
+  const { error } = await sb.rpc('add_obligation_transaction', {
+    p_obligation_id: id, p_note: 'ชำระเงิน', p_amount: -amt, p_month: currentMonthKey()
+  });
+  if (error) return handleErr(error);
+  loadData(); showToast('บันทึกการจ่ายแล้ว 💳');
+}
 
 // ---------- HOME: upcoming + sparkline ----------
 function renderUpcoming() {
@@ -404,10 +421,18 @@ function renderUpcoming() {
     el.innerHTML = '<div class="empty">ดูรายการใกล้ครบกำหนดได้เฉพาะเดือนปัจจุบันนะ 📅</div>';
     return;
   }
-  const today = new Date().getDate();
+  const today = new Date();
   const items = visibleObligations()
-    .filter(o => o.due_day && !isDoneObl(o) && (o.due_day - today) <= 3)
-    .map(o => Object.assign({}, o, { daysUntil: o.due_day - today }))
+    .filter(o => o.due_day && !isDoneObl(o))
+    .map(o => {
+      const dueDate = new Date(today.getFullYear(), today.getMonth(), o.due_day);
+      if (dueDate < new Date(today.getFullYear(), today.getMonth(), today.getDate() - 15)) {
+        dueDate.setMonth(dueDate.getMonth() + 1);
+      }
+      const daysUntil = Math.round((dueDate - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+      return Object.assign({}, o, { daysUntil });
+    })
+    .filter(o => o.daysUntil <= 3)
     .sort((a, b) => a.daysUntil - b.daysUntil)
     .slice(0, 3);
   if (!items.length) { el.innerHTML = '<div class="empty">ไม่มีรายการใกล้ครบกำหนด 🌿</div>'; return; }
@@ -462,12 +487,12 @@ function openStatsModal() {
   openModal('modalStats');
 }
 
-// ---------- COMPLETED ITEMS SHEET ----------
+// ---------- COMPLETED ITEMS SHEET (เฉพาะรายการที่จบจริง ๆ เช่นผ่อนครบทุกงวด) ----------
 function openCompletedModal(onlyDirection) {
-  const done = visibleObligations().filter(isDoneObl);
+  const done = visibleObligations().filter(isFullyDone);
   const groups = [
-    { dir: 'payable', title: 'หนี้ที่จ่ายแล้ว 💳' },
-    { dir: 'receivable', title: 'รายการที่ได้แล้ว 🧾' }
+    { dir: 'payable', title: 'หนี้ที่จบแล้ว 💳' },
+    { dir: 'receivable', title: 'รายการที่จบแล้ว 🧾' }
   ].filter(g => !onlyDirection || g.dir === onlyDirection);
 
   let html = '';
@@ -483,7 +508,6 @@ function openCompletedModal(onlyDirection) {
         + '<div class="item-sub">' + paymentTypeLabel(o) + '</div></div>'
         + '<div class="item-amount">' + fmt(o.amount) + '</div></div>'
         + '<div class="card-actions">'
-        + '<button class="btn btn-ghost" data-action="toggleStatus" data-id="' + esc(o.id) + '" data-status="paid">แก้เป็นยังไม่เสร็จ</button>'
         + '<button class="btn btn-danger" data-action="removeDebt" data-id="' + esc(o.id) + '">ลบ</button>'
         + '</div></div>';
     }).join('');
@@ -499,7 +523,7 @@ function renderDebts() {
   const list = document.getElementById('debtsList');
   const allPayable = visibleObligations().filter(o => o.direction === 'payable'
     && (!selectedCategoryFilter || String(o.category_id) === selectedCategoryFilter));
-  const active = allPayable.filter(o => !isDoneObl(o));
+  const active = allPayable.filter(o => !isFullyDone(o));
 
   if (!allPayable.length) {
     urgentTitle.style.display = 'none'; urgentList.innerHTML = '';
@@ -508,13 +532,13 @@ function renderDebts() {
   }
   if (!active.length) {
     urgentTitle.style.display = 'none'; urgentList.innerHTML = '';
-    list.innerHTML = '<div class="empty">จ่ายครบหมดแล้วตอนนี้ เก่งมาก 🎉<br>ดูรายการที่จบแล้วได้ที่ปุ่ม "จบแล้ว 🏆" ด้านบน</div>';
+    list.innerHTML = '<div class="empty">จบครบหมดแล้วตอนนี้ เก่งมาก 🎉<br>ดูรายการที่จบแล้วได้ที่ปุ่ม "จบแล้ว 🏆" ด้านบน</div>';
     return;
   }
   // โซน "ใกล้ครบกำหนด" โชว์เฉพาะตอนดูเดือนปัจจุบันเท่านั้น (เดือนอื่นไม่ต้องเตือน)
   const onCurrentMonth = currentMonthKey() === REAL_CURRENT_MONTH;
-  const urgent = onCurrentMonth ? active.filter(isUrgent) : [];
-  const rest = onCurrentMonth ? active.filter(o => !isUrgent(o)) : active;
+  const urgent = onCurrentMonth ? active.filter(o => !isDoneObl(o) && isUrgent(o)) : [];
+  const rest = onCurrentMonth ? active.filter(o => !(!isDoneObl(o) && isUrgent(o))) : active;
 
   if (urgent.length) {
     urgentTitle.style.display = 'flex';
@@ -527,14 +551,19 @@ function renderDebts() {
 }
 
 function renderObligationCard(d, kind) {
-  const sub = paymentTypeLabel(d) + dueDaySuffix(d) + categorySuffix(d) + interestSuffix(d);
+  const sub = paymentTypeLabel(d) + dueDaySuffix(d) + categorySuffix(d);
   const isChecked = (kind === 'debts' ? selectedDebts : selectedPeopleItems).has(String(d.id));
-  let badgeHtml = '';
+  let badges = [];
   let amountClass = '';
   if (d.payment_type === 'revolving' && Number(d.computedAmount) <= 0) {
-    badgeHtml = '<span class="badge none">ไม่มีหนี้ค้าง</span>';
+    badges.push('<span class="badge none">ไม่มีหนี้ค้าง</span>');
     if (Number(d.computedAmount) < 0) amountClass = 'neg';
   }
+  if (d.status === 'paid' && d.payment_type !== 'installment' && d.payment_type !== 'revolving') {
+    badges.push('<span class="badge paid">จ่ายแล้ว ✓</span>');
+  }
+  const badgeHtml = badges.join('');
+
   if (isReadonlyMonth) {
     let txListHtmlRo = '';
     if (d.payment_type === 'revolving') {
@@ -553,13 +582,19 @@ function renderObligationCard(d, kind) {
       + txListHtmlRo
       + '</div>';
   }
+
   const txBtn = d.payment_type === 'revolving'
     ? '<button class="btn btn-ghost" data-action="openTxModal" data-id="' + esc(d.id) + '">+ รายการ</button>'
     : '';
-  const interestBtn = d.payment_type === 'revolving'
-    ? '<button class="btn btn-ghost" data-action="editInterest" data-id="' + esc(d.id) + '" data-rate="' + esc(d.interest_rate_percent || 0) + '">% ดอกเบี้ย</button>'
-    : '';
-  const payBtn = '<button class="btn btn-mint" data-action="toggleStatus" data-id="' + esc(d.id) + '" data-status="unpaid">จ่ายแล้ว</button>';
+  let payBtn;
+  if (d.payment_type === 'revolving') {
+    payBtn = '<button class="btn btn-mint" data-action="payRevolving" data-id="' + esc(d.id) + '">จ่ายแล้ว</button>';
+  } else if (d.status === 'paid') {
+    payBtn = '<button class="btn btn-ghost" data-action="toggleStatus" data-id="' + esc(d.id) + '" data-status="paid">ยกเลิกจ่ายแล้ว</button>';
+  } else {
+    payBtn = '<button class="btn btn-mint" data-action="toggleStatus" data-id="' + esc(d.id) + '" data-status="unpaid">จ่ายแล้ว</button>';
+  }
+  const editBtn = '<button class="btn btn-ghost" data-action="editItem" data-id="' + esc(d.id) + '">แก้ไข</button>';
 
   let txListHtml = '';
   if (d.payment_type === 'revolving') {
@@ -583,7 +618,7 @@ function renderObligationCard(d, kind) {
     + '<div style="text-align:right;"><div class="item-amount ' + amountClass + '">' + fmt(d.computedAmount) + '</div>' + badgeHtml + '</div></div>'
     + '</div>'
     + txListHtml
-    + '<div class="card-actions">' + payBtn + txBtn + interestBtn
+    + '<div class="card-actions">' + payBtn + txBtn + editBtn
     + '<button class="btn btn-danger" data-action="removeDebt" data-id="' + esc(d.id) + '">ลบ</button></div>'
     + '</div>';
 }
@@ -596,17 +631,17 @@ function renderPeople() {
   el.innerHTML = people.map(p => {
     const allItems = visibleObligations().filter(o => o.direction === 'receivable' && String(o.person_id) === String(p.id)
       && (!selectedCategoryFilter || String(o.category_id) === selectedCategoryFilter));
-    const items = allItems.filter(o => !isDoneObl(o));
+    const items = allItems.filter(o => !isFullyDone(o));
     const total = items.reduce((s, i) => s + Number(i.computedAmount || 0), 0);
 
     let itemsHtml;
     if (!allItems.length) {
       itemsHtml = '<div class="item-sub" style="padding:6px 0;">ยังไม่มีรายการ</div>';
     } else if (!items.length) {
-      itemsHtml = '<div class="item-sub" style="padding:6px 0;">ได้ครบหมดแล้ว ✓ (ดูได้ที่ปุ่ม "จบแล้ว 🏆")</div>';
+      itemsHtml = '<div class="item-sub" style="padding:6px 0;">จบครบหมดแล้ว ✓ (ดูได้ที่ปุ่ม "จบแล้ว 🏆")</div>';
     } else {
       itemsHtml = '<div class="person-items">' + items.map(i => {
-        const sub = paymentTypeLabel(i) + dueDaySuffix(i) + categorySuffix(i) + interestSuffix(i);
+        const sub = paymentTypeLabel(i) + dueDaySuffix(i) + categorySuffix(i);
         if (isReadonlyMonth) {
           let txListHtmlRo = '';
           if (i.payment_type === 'revolving') {
@@ -626,11 +661,26 @@ function renderPeople() {
             + '</div>';
         }
         const isChecked = selectedPeopleItems.has(String(i.id));
-        const paidBtn = '<button class="btn btn-mint" style="padding:5px 10px; font-size:12px;" data-action="toggleStatus" data-id="' + esc(i.id) + '" data-status="unpaid">ได้แล้ว</button>';
+        let badges = [];
+        if (i.payment_type === 'revolving' && Number(i.computedAmount) <= 0) {
+          badges.push('<span class="badge none">ไม่มีค้าง</span>');
+        }
+        if (i.status === 'paid' && i.payment_type !== 'installment' && i.payment_type !== 'revolving') {
+          badges.push('<span class="badge paid">ได้แล้ว ✓</span>');
+        }
+        const badgeHtml = badges.join('');
+
+        let paidBtn;
+        if (i.payment_type === 'revolving') {
+          paidBtn = '<button class="btn btn-mint" style="padding:5px 10px; font-size:12px;" data-action="payRevolving" data-id="' + esc(i.id) + '">ได้แล้ว</button>';
+        } else if (i.status === 'paid') {
+          paidBtn = '<button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" data-action="toggleStatus" data-id="' + esc(i.id) + '" data-status="paid">ยกเลิกได้แล้ว</button>';
+        } else {
+          paidBtn = '<button class="btn btn-mint" style="padding:5px 10px; font-size:12px;" data-action="toggleStatus" data-id="' + esc(i.id) + '" data-status="unpaid">ได้แล้ว</button>';
+        }
         const txBtn = i.payment_type === 'revolving'
           ? '<button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" data-action="openTxModal" data-id="' + esc(i.id) + '">+ รายการ</button>' : '';
-        const interestBtn = i.payment_type === 'revolving'
-          ? '<button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" data-action="editInterest" data-id="' + esc(i.id) + '" data-rate="' + esc(i.interest_rate_percent || 0) + '">% ดอกเบี้ย</button>' : '';
+        const editBtn = '<button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" data-action="editItem" data-id="' + esc(i.id) + '">แก้ไข</button>';
 
         let txListHtml = '';
         if (i.payment_type === 'revolving') {
@@ -652,10 +702,10 @@ function renderPeople() {
           + '<div class="row" style="flex:1;"><div><div class="person-item-name">' + esc(i.name) + '</div>'
           + '<div class="item-sub">' + sub + '</div></div>'
           + '<div style="display:flex; align-items:center; gap:8px;">'
-          + '<span style="font-size:13px; font-weight:600;">' + fmt(i.computedAmount) + '</span></div></div>'
+          + '<span style="font-size:13px; font-weight:600;">' + fmt(i.computedAmount) + '</span>' + badgeHtml + '</div></div>'
           + '</div>'
           + txListHtml
-          + '<div class="card-actions">' + paidBtn + txBtn + interestBtn
+          + '<div class="card-actions">' + paidBtn + txBtn + editBtn
           + '<button class="btn btn-danger" style="padding:5px 10px; font-size:12px;" data-action="removeDebt" data-id="' + esc(i.id) + '">ลบรายการ</button></div>'
           + '</div>';
       }).join('') + '</div>';
@@ -682,7 +732,8 @@ document.getElementById('app').addEventListener('click', function(e) {
   const action = btn.dataset.action;
   const id = btn.dataset.id;
   if (action === 'toggleStatus') { toggleObligationStatus(id, btn.dataset.status); return; }
-  if (action === 'editInterest') { editInterest(id, btn.dataset.rate); return; }
+  if (action === 'payRevolving') { payRevolvingAmount(id); return; }
+  if (action === 'editItem') { editObligation(id); return; }
   const actions = { removeDebt, openTxModal, openItemModal, removePerson, removeTx, removeCategory };
   if (actions[action]) actions[action](id);
 });
@@ -696,7 +747,6 @@ document.getElementById('completedContent').addEventListener('click', function(e
   if (!btn) return;
   const action = btn.dataset.action;
   const id = btn.dataset.id;
-  if (action === 'toggleStatus') { toggleObligationStatus(id, btn.dataset.status).then(() => closeModal('modalCompleted')); return; }
   if (action === 'removeDebt') { removeDebt(id); openCompletedModal(); }
 });
 
@@ -713,17 +763,20 @@ function renderFabVisibility() {
     (!isReadonlyMonth && (currentTab === 'debts' || currentTab === 'people')) ? 'block' : 'none';
 }
 
-// ---------- ADD OBLIGATION ----------
+// ---------- ADD / EDIT OBLIGATION ----------
 function resetObligationForm() {
+  editingObligationId = null;
   document.getElementById('obligationName').value = '';
   document.getElementById('obligationAmount').value = '';
   document.getElementById('obligationCurrentInstallment').value = '';
   document.getElementById('obligationTotalInstallments').value = '';
   document.getElementById('obligationDueDay').value = '';
-  document.getElementById('obligationInterestRate').value = '';
+  document.getElementById('obligationDueMonth').value = '';
   document.getElementById('obligationCategory').value = '';
   document.getElementById('obligationNewCategoryName').value = '';
   document.getElementById('obligationNewCategoryName').style.display = 'none';
+  document.getElementById('typeToggleGroup').style.display = '';
+  document.getElementById('obligationSubmitBtn').textContent = 'เพิ่มรายการ';
   setPaymentType('one_time');
 }
 function resetPersonForm() { document.getElementById('personName').value = ''; }
@@ -744,6 +797,35 @@ function openItemModal(personId) {
   document.getElementById('obligationModalTitle').textContent = 'เพิ่มรายการที่เขาติด';
   openModal('modalObligation');
 }
+function editObligation(id) {
+  const o = DATA.obligations.find(x => String(x.id) === String(id));
+  if (!o) return;
+  resetObligationForm();
+  editingObligationId = id;
+  document.getElementById('obligationDirection').value = o.direction;
+  document.getElementById('obligationPersonId').value = o.person_id || '';
+  document.getElementById('obligationModalTitle').textContent = 'แก้ไขรายการ';
+  document.getElementById('obligationSubmitBtn').textContent = 'บันทึกการแก้ไข';
+  document.getElementById('obligationName').value = o.name;
+  document.getElementById('obligationDueDay').value = o.due_day || '';
+  setPaymentType(o.payment_type);
+  document.getElementById('typeToggleGroup').style.display = 'none'; // ไม่ให้เปลี่ยนประเภทตอนแก้ไข
+  if (o.payment_type === 'installment') {
+    document.getElementById('obligationCurrentInstallment').value = o.current_installment;
+    document.getElementById('obligationTotalInstallments').value = o.total_installments;
+    document.getElementById('obligationAmount').value = o.amount;
+  } else if (o.payment_type === 'revolving') {
+    document.getElementById('amountField').style.display = 'none'; // ยอดคำนวณจากรายการรูดบัตร แก้ตรงนี้ไม่ได้
+  } else {
+    document.getElementById('obligationAmount').value = o.amount;
+  }
+  if (o.payment_type === 'one_time') {
+    document.getElementById('obligationDueMonth').value = o.due_month || '';
+  }
+  // เติม dropdown หมวดหมู่ให้ตรงค่าปัจจุบัน (รอ renderCategories เติม option ไว้ก่อนแล้วจากการโหลดข้อมูล)
+  document.getElementById('obligationCategory').value = o.category_id || '';
+  openModal('modalObligation');
+}
 function setPaymentType(t) {
   paymentType = t;
   ['one_time','installment','recurring','revolving'].forEach(k => {
@@ -751,31 +833,14 @@ function setPaymentType(t) {
   });
   document.getElementById('installmentFields').style.display = t === 'installment' ? 'block' : 'none';
   document.getElementById('amountField').style.display = t === 'revolving' ? 'none' : 'block';
-  document.getElementById('interestField').style.display = t === 'revolving' ? 'block' : 'none';
+  document.getElementById('dueMonthField').style.display = t === 'one_time' ? 'block' : 'none';
   const labels = { one_time: 'จำนวนเงิน', installment: 'ยอดต่องวด', recurring: 'จำนวนเงินต่อเดือน' };
   document.getElementById('amountLabel').textContent = labels[t] || 'จำนวนเงิน';
 }
 async function submitAddObligation() {
   const name = document.getElementById('obligationName').value.trim();
   if (!name) { showToast('ใส่ชื่อรายการก่อนนะ'); return; }
-  const direction = document.getElementById('obligationDirection').value;
-  const personId = document.getElementById('obligationPersonId').value || null;
   const dueDayVal = document.getElementById('obligationDueDay').value;
-  const params = {
-    p_direction: direction, p_name: name, p_payment_type: paymentType,
-    p_person_id: personId, p_amount: 0, p_current: null, p_total: null,
-    p_due_day: dueDayVal ? Number(dueDayVal) : null
-  };
-  if (paymentType === 'installment') {
-    const current = Number(document.getElementById('obligationCurrentInstallment').value || 1);
-    const total = Number(document.getElementById('obligationTotalInstallments').value || 1);
-    if (current > total) { showToast('งวดที่กำลังจะจ่ายต้องไม่เกินจำนวนงวดทั้งหมด'); return; }
-    params.p_amount = Number(document.getElementById('obligationAmount').value || 0);
-    params.p_current = current;
-    params.p_total = total;
-  } else if (paymentType !== 'revolving') {
-    params.p_amount = Number(document.getElementById('obligationAmount').value || 0);
-  }
 
   // ---- หมวดหมู่: ถ้าเลือก "เพิ่มหมวดหมู่ใหม่" ให้สร้างหมวดหมู่ก่อน ----
   const categorySelect = document.getElementById('obligationCategory').value;
@@ -790,37 +855,72 @@ async function submitAddObligation() {
     categoryId = categorySelect;
   }
 
+  // ---- โหมดแก้ไขรายการเดิม ----
+  if (editingObligationId) {
+    const editing = DATA.obligations.find(x => String(x.id) === String(editingObligationId));
+    const params = {
+      p_id: editingObligationId,
+      p_name: name,
+      p_amount: null,
+      p_due_day: dueDayVal ? Number(dueDayVal) : null,
+      p_current: null,
+      p_total: null,
+      p_category_id: categoryId,
+      p_due_month: null
+    };
+    if (editing && editing.payment_type === 'one_time') {
+      const dueMonthVal = document.getElementById('obligationDueMonth').value;
+      params.p_due_month = dueMonthVal || null;
+    }
+    if (editing && editing.payment_type === 'installment') {
+      const current = Number(document.getElementById('obligationCurrentInstallment').value || editing.current_installment);
+      const total = Number(document.getElementById('obligationTotalInstallments').value || editing.total_installments);
+      if (current > total) { showToast('งวดที่กำลังจะจ่ายต้องไม่เกินจำนวนงวดทั้งหมด'); return; }
+      params.p_amount = Number(document.getElementById('obligationAmount').value || editing.amount);
+      params.p_current = current;
+      params.p_total = total;
+    } else if (editing && editing.payment_type !== 'revolving') {
+      params.p_amount = Number(document.getElementById('obligationAmount').value || editing.amount);
+    }
+    const { error } = await sb.rpc('update_obligation', params);
+    if (error) return handleErr(error);
+    closeModal('modalObligation'); loadData(); showToast('แก้ไขแล้ว ✏️');
+    return;
+  }
+
+  // ---- โหมดเพิ่มรายการใหม่ ----
+  const direction = document.getElementById('obligationDirection').value;
+  const personId = document.getElementById('obligationPersonId').value || null;
+  const dueMonthVal = document.getElementById('obligationDueMonth').value;
+  const params = {
+    p_direction: direction, p_name: name, p_payment_type: paymentType,
+    p_person_id: personId, p_amount: 0, p_current: null, p_total: null,
+    p_due_day: dueDayVal ? Number(dueDayVal) : null,
+    p_due_month: paymentType === 'one_time' && dueMonthVal ? dueMonthVal : null
+  };
+  if (paymentType === 'installment') {
+    const current = Number(document.getElementById('obligationCurrentInstallment').value || 1);
+    const total = Number(document.getElementById('obligationTotalInstallments').value || 1);
+    if (current > total) { showToast('งวดที่กำลังจะจ่ายต้องไม่เกินจำนวนงวดทั้งหมด'); return; }
+    params.p_amount = Number(document.getElementById('obligationAmount').value || 0);
+    params.p_current = current;
+    params.p_total = total;
+  } else if (paymentType !== 'revolving') {
+    params.p_amount = Number(document.getElementById('obligationAmount').value || 0);
+  }
+
   const { data, error } = await sb.rpc('add_obligation', params);
   if (error) return handleErr(error);
 
-  // ผูกหมวดหมู่เข้ากับรายการที่เพิ่งสร้าง (ต้องได้ id ของรายการกลับมาจาก add_obligation)
   if (categoryId && data && data.id) {
     const catAssignRes = await sb.rpc('set_obligation_category', { p_obligation_id: data.id, p_category_id: categoryId });
     if (catAssignRes.error) handleErr(catAssignRes.error);
-  }
-
-  if (paymentType === 'revolving' && data && data.id) {
-    const rate = Number(document.getElementById('obligationInterestRate').value || 0);
-    if (rate > 0) {
-      const rateRes = await sb.rpc('set_obligation_interest', { p_obligation_id: data.id, p_rate: rate });
-      if (rateRes.error) handleErr(rateRes.error);
-    }
   }
 
   closeModal('modalObligation'); loadData(); showToast('เพิ่มรายการแล้ว 🎉');
 }
 function removeDebt(id) {
   scheduleDelete(id, 'ลบแล้ว', () => sb.from('obligations').delete().eq('id', id));
-}
-
-async function editInterest(obligationId, currentRate) {
-  const input = prompt('ดอกเบี้ยต่อเดือน (%) สำหรับยอดหมุนเวียนนี้:', currentRate || '0');
-  if (input === null) return;
-  const rate = Number(input);
-  if (isNaN(rate) || rate < 0) { showToast('ใส่ตัวเลข % ให้ถูกต้อง'); return; }
-  const { error } = await sb.rpc('set_obligation_interest', { p_obligation_id: obligationId, p_rate: rate });
-  if (error) return handleErr(error);
-  loadData(); showToast('ตั้งดอกเบี้ยแล้ว 💳');
 }
 
 // ---------- TRANSACTION (revolving) ----------
@@ -882,7 +982,7 @@ function renderCategories() {
       : '<div class="item-sub" style="padding:4px 0;">ยังไม่มีหมวดหมู่ ลองเพิ่มดูสิ 🌱</div>';
   }
 
-  // dropdown ในโมดัลเพิ่มรายการ
+  // dropdown ในโมดัลเพิ่ม/แก้ไขรายการ
   const sel = document.getElementById('obligationCategory');
   if (sel) {
     const prevValue = sel.value;
@@ -923,9 +1023,9 @@ async function saveSalary() {
   loadData(); showToast('บันทึกเงินเดือนแล้ว');
 }
 function shareLine() {
-  const debtLines = visibleObligations().filter(o => o.direction === 'payable' && !isDoneObl(o))
+  const debtLines = visibleObligations().filter(o => o.direction === 'payable' && !isFullyDone(o))
     .map(d => '• ' + d.name + '  ' + fmt(d.computedAmount)).join('\n');
-  const recvLines = visibleObligations().filter(o => o.direction === 'receivable' && !isDoneObl(o))
+  const recvLines = visibleObligations().filter(o => o.direction === 'receivable' && !isFullyDone(o))
     .map(r => {
       const p = DATA.people.find(x => String(x.id) === String(r.person_id));
       return '• ' + (p ? p.name : '') + ' (' + r.name + ')  ' + fmt(r.computedAmount);
@@ -934,9 +1034,9 @@ function shareLine() {
     '┏━━━━━━━━━━━━━━━┓\n'
     + '   💰 สรุปหนี้เดือน ' + thaiMonthLabel(DATA.month) + '\n'
     + '┗━━━━━━━━━━━━━━━┛\n\n'
-    + '📌 ต้องจ่าย รวม ' + fmt(DATA.totalDebt) + '\n'
+    + '📌 ยอดจ่ายรวม ' + fmt(DATA.totalDebt) + '\n'
     + (debtLines || '（ไม่มี）') + '\n\n'
-    + '📌 ต้องเก็บ รวม ' + fmt(DATA.totalReceivable) + '\n'
+    + '📌 ยอดเก็บรวม ' + fmt(DATA.totalReceivable) + '\n'
     + (recvLines || '（ไม่มี）') + '\n\n'
     + '✨ เหลือสุทธิประมาณ ' + fmt(DATA.netRemaining);
   const url = 'https://line.me/R/msg/text/?' + encodeURIComponent(msg);
@@ -957,7 +1057,7 @@ function exportCSV() {
     return [
       o.direction === 'payable' ? 'ต้องจ่าย' : 'ต้องเก็บ',
       o.name, paymentTypeLabel(o), Number(o.computedAmount || 0),
-      o.due_day || '', cat, isDoneObl(o) ? 'จบแล้ว' : 'ยังไม่จบ', person
+      o.due_day || '', cat, isFullyDone(o) ? 'จบแล้ว' : (o.status === 'paid' ? 'จ่ายแล้ว' : 'ยังไม่จบ'), person
     ];
   });
   const csvLines = [header, ...rows].map(r =>
